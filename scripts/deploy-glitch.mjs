@@ -70,8 +70,7 @@ async function run() {
     GLITCH_BACKEND_ENABLED: '1',
     GLITCH_TITLE_TOKEN: titleToken,
     NODE_ENV: 'production',
-    GLITCH_CLOUD_SAVES_ENABLED: '1',
-    GLITCH_ANALYTICS_ENABLED: '1'
+    GLITCH_CLOUD_SAVES_ENABLED: '1'
   }));
 
   const zipped = spawnSync('zip', ['-q', '-r', zipPath, '.'], { cwd: stage, stdio: 'inherit' });

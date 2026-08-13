@@ -154,8 +154,7 @@ export class RegolithBackend {
       apiOrigin: String(config.apiOrigin || '').replace(/\/$/, ''),
       cloudSavesEnabled: !!config.cloudSavesEnabled,
       analyticsEnabled: !!config.analyticsEnabled,
-      analyticsTestMode: !!config.analyticsTestMode,
-      gameVersion: config.gameVersion || '1.1.1',
+      gameVersion: config.gameVersion || '1.1.2',
       buildType: config.buildType || 'production'
     };
     Object.assign(this, {
@@ -165,7 +164,6 @@ export class RegolithBackend {
     this.valid = false;
     this.online = false;
     this.linkedUser = false;
-    this.analyticsConsent = false;
     this.active = false;
     this.eventQueue = [];
     this.eventSending = false;
@@ -187,7 +185,6 @@ export class RegolithBackend {
     return this.enabled && this.valid && this.online && this.config.cloudSavesEnabled &&
       this.linkedUser && !this.cloudDisabled;
   }
-  get shouldAskForAnalyticsConsent() { return this.analyticsAvailable; }
 
   _url(path) { return `${this.config.apiOrigin}${path}`; }
 
@@ -294,6 +291,12 @@ export class RegolithBackend {
       this.onStatus(this.linkedUser && this.config.cloudSavesEnabled
         ? 'Online services connected.'
         : 'Access verified. Cloud saves need a signed-in Glitch account.');
+      this.track('app_launch', 'session_started', {
+        session_id: this.sessionId,
+        game_version: this.config.gameVersion,
+        build_type: this.config.buildType,
+        platform: 'web'
+      }, { dedupeKey: `session:${this.sessionId}` });
       return { enabled: true, valid: true, installId: this.installId, linkedUser: this.linkedUser };
     } catch (error) {
       if (error instanceof BackendAccessError) throw error;
@@ -314,24 +317,8 @@ export class RegolithBackend {
     }
   }
 
-  setAnalyticsConsent(granted) {
-    this.analyticsConsent = granted === true;
-    if (!this.analyticsConsent) {
-      this.eventQueue.length = 0;
-      this._stopHeartbeat();
-      return;
-    }
-    if (this.active) this._startHeartbeat();
-    this.track('app_launch', 'session_started', {
-      session_id: this.sessionId,
-      game_version: this.config.gameVersion,
-      build_type: this.config.buildType,
-      platform: 'web'
-    }, { dedupeKey: `session:${this.sessionId}` });
-  }
-
   track(stepKey, actionKey, metadata = {}, options = {}) {
-    if (!this.analyticsAvailable || !this.analyticsConsent || !this.valid || !this.online) return false;
+    if (!this.analyticsAvailable || !this.valid || !this.online) return false;
     if (!SAFE_KEY.test(stepKey) || !SAFE_KEY.test(actionKey)) return false;
     const now = this.now();
     const dedupeKey = options.dedupeKey || `${stepKey}:${actionKey}:${JSON.stringify(metadata)}`;
@@ -400,7 +387,7 @@ export class RegolithBackend {
     this.playStartedAt = this.now();
     this.track('gameplay', 'started', { mode, resumed: !!resumed, ...context },
       { dedupeKey: `play:${this.sessionId}:${mode}:${this.playStartedAt}` });
-    if (this.analyticsConsent) this._startHeartbeat();
+    this._startHeartbeat();
   }
 
   endPlay(reason, context = {}) {
@@ -413,10 +400,10 @@ export class RegolithBackend {
   }
 
   _startHeartbeat() {
-    if (this.heartbeatTimer || !this.canHeartbeat || !this.online || !this.analyticsConsent || !this.setTimeoutImpl) return;
+    if (this.heartbeatTimer || !this.canHeartbeat || !this.online || !this.setTimeoutImpl) return;
     const run = async () => {
       this.heartbeatTimer = null;
-      if (!this.active || !this.analyticsConsent) return;
+      if (!this.active) return;
       try { await this._createInstall({ adopt: false }); } catch { /* heartbeat never interrupts play */ }
       this.heartbeatTimer = this.setTimeoutImpl(run, 30_000);
     };

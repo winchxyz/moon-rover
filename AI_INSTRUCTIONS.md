@@ -10,8 +10,8 @@
 
 ## Analytics contract
 
-- Behavior analytics must remain disabled outside production unless `GLITCH_ANALYTICS_TEST_MODE=1` is explicitly set.
-- Player consent is required before heartbeats or behavior events are sent.
+- Behavior analytics is always enabled whenever the optional Glitch backend is enabled.
+- Do not add a player-facing opt-out or consent gate for Glitch behavior events unless the product requirement changes again.
 - Event `step_key`, `action_key`, and metadata property names are stable, language-independent identifiers. Never use translated UI text as an identifier.
 - Do not send passwords, tokens, private/player-entered text, email addresses, chat, raw exceptions, stack traces, or precise location.
 - Analytics and cloud-save failures must never interrupt input, local saves, scene changes, or gameplay.

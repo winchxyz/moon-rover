@@ -98,7 +98,7 @@ because there is no build step — native **import maps**, and it is the import
 map rather than WebGL2 that sets those floors. Works on phones and tablets with
 twin thumbsticks. Progress autosaves to `localStorage` every 20 seconds. An
 optional Node deployment can also validate Glitch installs, synchronize cloud
-saves, and send consented production behavior events; static hosting remains
+saves, and send always-on privacy-filtered Glitch behavior events; static hosting remains
 fully supported without those services.
 
 ### Run it locally

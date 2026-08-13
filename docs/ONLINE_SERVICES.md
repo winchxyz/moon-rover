@@ -4,14 +4,17 @@ Regolith 1.1 adds an optional same-origin Node backend for Glitch install valida
 
 ## Current production deployment
 
-- Version: `1.1.1`
-- Glitch build: `019ff8bd-f4a9-7395-b93d-bbdee96ba609`
+- Version: `1.1.2`
+- Active Glitch build: `019ff8d1-faa2-7180-99a8-16da93dc915c`
+- Previous Glitch build: `019ff8bd-f4a9-7395-b93d-bbdee96ba609` (`1.1.1`)
 - Deployment type: `node`
 - Build type: `production`
-- Status verified on August 13, 2026: `ready`
+- Status verified on August 13, 2026 at 01:58 UTC: `ready`, active
 - Runtime URL: `https://regolith-node.graywater-acc59434.eastus.azurecontainerapps.io`
 
-The post-deploy smoke test verified that runtime configuration was enabled without exposing a token, server-only paths returned 404, install creation succeeded, install validation returned `valid: true`, and a behavior event returned HTTP 201. The smoke-test install was a guest, so Cloud Save returned the documented HTTP 403 `GUEST_NOT_ALLOWED`; successful and conflict cloud-save paths are covered by the automated test suite with a login-backed install response.
+The post-deploy smoke test verified that runtime configuration was enabled without exposing a token, the direct runtime loaded through the main menu, install validation returned `valid: true`, and the automatic `app_launch/session_started` behavior event returned HTTP 201 without a consent prompt. The smoke-test install was a guest, so Cloud Save returned the documented HTTP 403 `GUEST_NOT_ALLOWED`; successful and conflict cloud-save paths are covered by the automated test suite with a login-backed install response.
+
+The Glitch public play page remains blocked by a platform metadata/routing mismatch even though the Node runtime is healthy. See [Glitch public play incident — August 13, 2026](GLITCH_PLAY_INCIDENT_2026-08-13.md) for the full evidence and recommended Glitch-side fix.
 
 ## Architecture
 
@@ -41,10 +44,8 @@ Set these environment variables on a private server, or copy `backend/runtime-se
 | --- | --- | --- |
 | `GLITCH_BACKEND_ENABLED=1` | yes | Enables the proxy and client integration. |
 | `GLITCH_TITLE_TOKEN` | yes | Runtime install/title token. Server-only. |
-| `NODE_ENV=production` | for production analytics | Enables production behavior analytics. |
+| `NODE_ENV=production` | recommended | Marks the server runtime as production. |
 | `GLITCH_CLOUD_SAVES_ENABLED=0|1` | no | Defaults to enabled when the backend is enabled. |
-| `GLITCH_ANALYTICS_ENABLED=0|1` | no | Defaults to enabled, but still requires production or explicit test mode. |
-| `GLITCH_ANALYTICS_TEST_MODE=1` | tests only | Allows behavior events outside production. Never use for an ordinary development session. |
 | `REGOLITH_ALLOWED_ORIGINS` | no | Comma-separated additional trusted browser origins. Same-origin requests are always allowed. |
 | `REGOLITH_PUBLIC_API_ORIGIN` | no | Absolute game API origin when the frontend and Node server are intentionally hosted separately. |
 | `GLITCH_REQUEST_TIMEOUT_MS` | no | Upstream timeout; defaults to 10 seconds. |
@@ -72,7 +73,7 @@ The script creates its staging directory outside the repository, adds the runtim
 6. Recreate once when validation reports `INSTALL_NOT_FOUND`.
 7. Block play with a player-readable message for license, trial, subscription, age-gate, or suspension denials.
 8. If Glitch cannot be reached, a previously validated install receives a 24-hour offline grace period. A new/unvalidated install does not bypass validation.
-9. With analytics consent, reuse the same `user_install_id` and session ID for a heartbeat every 30 seconds.
+9. Reuse the same `user_install_id` and session ID for an always-on analytics heartbeat every 30 seconds.
 
 Cloud saves require a login-backed install with a Glitch `user_id`. Guest players continue with local saves and see a plain-language status message.
 
@@ -91,14 +92,12 @@ Cloud saves require a login-backed install with a Glitch `user_id`. Guest player
 
 ## Behavior analytics contract
 
-Events are sent only when all of these are true:
+Events are sent automatically when all of these are true:
 
 1. The optional backend is enabled.
-2. The server is in production, or isolated analytics test mode is explicitly enabled.
-3. Install validation succeeded online.
-4. The player opted in to usage analytics.
+2. Install validation succeeded online.
 
-Every event includes `game_install_id`, stable `step_key` and `action_key`, `event_timestamp`, `session_id`, `game_version`, and `build_type`. `previous_step_key` is included when the player changes steps. The client deduplicates repeated events, queues up to 100 events in memory, retries transient failures with bounded exponential backoff, and uses a keepalive flush for page exit.
+There is no consent prompt or settings toggle for Glitch behavior analytics. Every event includes `game_install_id`, stable `step_key` and `action_key`, `event_timestamp`, `session_id`, `game_version`, and `build_type`. `previous_step_key` is included when the player changes steps. The client deduplicates repeated events, queues up to 100 events in memory, retries transient failures with bounded exponential backoff, and uses a keepalive flush for page exit.
 
 Metadata is privacy-filtered. Passwords, tokens, secrets, email, chat/private messages, dialogue, player-entered text, raw exceptions, stack traces, and precise location are not sent.
 
@@ -136,7 +135,7 @@ The Node test suite covers:
 
 - optional/disabled behavior;
 - install creation, desktop launch IDs, validation, recreation, denial, and offline grace;
-- production and consent gates;
+- automatic analytics startup whenever Glitch is enabled;
 - event context, sensitive-field removal, duplicate prevention, and provider failure;
 - save encoding, decoded-byte checksum verification, upload fields, remote restore, and 409 resolution;
 - exact upstream routes and bearer placement;

@@ -42,7 +42,6 @@ export function loadServerConfig(env = process.env, root = ROOT) {
   const titleToken = String(values.GLITCH_TITLE_TOKEN || '').trim();
   const enabled = requested && titleToken.length > 0;
   const environment = values.NODE_ENV === 'production' ? 'production' : 'development';
-  const analyticsTestMode = truthy(values.GLITCH_ANALYTICS_TEST_MODE);
   return {
     port: Number(values.PORT || process.argv[2]) || DEFAULT_PORT,
     glitch: {
@@ -54,9 +53,7 @@ export function loadServerConfig(env = process.env, root = ROOT) {
       environment,
       apiOrigin: String(values.REGOLITH_PUBLIC_API_ORIGIN || ''),
       cloudSavesEnabled: values.GLITCH_CLOUD_SAVES_ENABLED !== '0',
-      analyticsEnabled: values.GLITCH_ANALYTICS_ENABLED !== '0' &&
-        (environment === 'production' || analyticsTestMode),
-      analyticsTestMode,
+      analyticsEnabled: enabled,
       allowedOrigins: String(values.REGOLITH_ALLOWED_ORIGINS || '')
         .split(',').map(v => v.trim()).filter(Boolean),
       requestTimeoutMs: Math.max(1000, Number(values.GLITCH_REQUEST_TIMEOUT_MS) || 10_000),
@@ -74,8 +71,7 @@ function runtimeConfig(config) {
       apiOrigin: config.apiOrigin,
       cloudSavesEnabled: config.enabled && config.cloudSavesEnabled,
       analyticsEnabled: config.enabled && config.analyticsEnabled,
-      analyticsTestMode: config.analyticsTestMode,
-      gameVersion: '1.1.1',
+      gameVersion: '1.1.2',
       buildType: 'production'
     }
   };

@@ -29,7 +29,7 @@ const App = {
     quality: guessQuality(), fov: 58, sens: 1.0, invertY: false,
     bloom: true, grain: 1.0, aberr: 1.0, stars: 1.0,
     volSfx: 0.8, volMusic: 0.5, music: true, tc: true, hudOn: true, autoCentre: 1,
-    hudScale: 1, realistic: false, comms: false, analyticsConsent: null
+    hudScale: 1, realistic: false, comms: false
   }, Save.settings()),
   elapsed: 0, sunAz: 4.35, paused: false
 };
@@ -92,20 +92,6 @@ function promptCloudConflict(details = {}) {
   });
 }
 
-function setAnalyticsChoice(granted) {
-  App.settings.analyticsConsent = granted;
-  Save.saveSettings(App.settings);
-  backend.setAnalyticsConsent(granted);
-  $('analyticsConsent').classList.add('hidden');
-  if (App.audio?.ready) App.audio.ui(granted ? 'ok' : 'tick');
-  if (App.audio) buildSettingsUI();
-}
-
-function maybeAskAnalyticsConsent() {
-  if (!backend.shouldAskForAnalyticsConsent || App.settings.analyticsConsent !== null) return;
-  $('analyticsConsent').classList.remove('hidden');
-}
-
 /* Optional imagery. The game generates everything it needs, so the repo ships
    with no third-party assets.
 
@@ -146,7 +132,6 @@ function loadTextures() {
 async function boot() {
   progress(0.005, 'verifying online services…');
   await backend.initialize();
-  backend.setAnalyticsConsent(App.settings.analyticsConsent === true);
   await backend.syncInitialSave(Save);
   Save.setSyncHandler((data, meta) => backend.queueCloudSave(data, meta));
 
@@ -235,7 +220,6 @@ async function boot() {
   await new Promise(r => setTimeout(r, 260));
   $('boot').classList.add('hidden');
   showMenu();
-  maybeAskAnalyticsConsent();
   requestAnimationFrame(frame);
 }
 
@@ -346,8 +330,6 @@ function wireUI() {
   };
   // one close path, so the ESC button and the Escape key cannot diverge
   document.querySelectorAll('[data-close]').forEach(b => b.onclick = closePanels);
-  $('analyticsDecline').onclick = () => setAnalyticsChoice(false);
-  $('analyticsAllow').onclick = () => setAnalyticsChoice(true);
   $('accessRetry').onclick = () => location.reload();
   addEventListener('beforeunload', () => {
     if (App.game && App.state >= ST.PLAY) Save.write(App.game.save());
@@ -408,11 +390,6 @@ function buildSettingsUI() {
     () => S.tc ? 1 : 0, (i) => { S.tc = !!i; App.game.tc = !!i; persist(); });
   seg('SCORE', 'generative, D minor, patient', ['OFF', 'ON'],
     () => S.music ? 1 : 0, (i) => { S.music = !!i; App.audio.setMusic(!!i); persist(); });
-  if (backend.analyticsAvailable) {
-    seg('USAGE ANALYTICS', 'anonymous mission, menu, performance, and error events', ['OFF', 'ON'],
-      () => S.analyticsConsent === true ? 1 : 0,
-      (i) => { S.analyticsConsent = !!i; backend.setAnalyticsConsent(!!i); persist(); });
-  }
   rng('FIELD OF VIEW', 'degrees', 42, 82, 1, () => S.fov, (v) => { S.fov = v; App.rig.fovScale = v / 58; persist(); });
   rng('LOOK SENSITIVITY', '', 0.25, 3, 0.05, () => S.sens, (v) => { S.sens = v; applySettings(); persist(); });
   rng('EFFECTS VOLUME', '', 0, 1, 0.05, () => S.volSfx, (v) => { S.volSfx = v; App.audio.setVolumes(v, S.volMusic); persist(); });

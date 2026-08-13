@@ -35,8 +35,7 @@ function baseConfig(overrides = {}) {
     apiOrigin: '',
     cloudSavesEnabled: true,
     analyticsEnabled: true,
-    analyticsTestMode: false,
-    gameVersion: '1.1.1',
+    gameVersion: '1.1.2',
     buildType: 'production',
     ...overrides
   };
@@ -118,7 +117,7 @@ test('install creation is followed by validation and identifiers are persisted',
   assert.equal(calls[0].url, '/api/glitch/installs');
   assert.equal(calls[1].url, `/api/glitch/installs/${INSTALL_ID}/validate`);
   assert.equal(calls[0].body.platform, 'web');
-  assert.equal(calls[0].body.game_version, '1.1.1');
+  assert.equal(calls[0].body.game_version, '1.1.2');
   assert.ok(calls[0].body.user_install_id);
   assert.equal(storage.getItem('regolith.glitch.install_id.v1'), INSTALL_ID);
 });
@@ -130,7 +129,8 @@ test('desktop launch install ID is validated before fallback creation', async ()
     fetchImpl: async (url) => { calls.push(url); return response({ valid: true, user_id: 'user' }); }
   });
   await client.initialize();
-  assert.deepEqual(calls, [`/api/glitch/installs/${INSTALL_ID}/validate`]);
+  assert.deepEqual(calls.filter(url => url !== '/api/glitch/events'),
+    [`/api/glitch/installs/${INSTALL_ID}/validate`]);
   assert.equal(client.userInstallId, 'device-7');
   assert.equal(client.sessionId, 'session-9');
 });
@@ -147,7 +147,7 @@ test('missing desktop install is recreated and revalidated', async () => {
     }
   });
   await client.initialize();
-  assert.deepEqual(calls, [
+  assert.deepEqual(calls.filter(url => url !== '/api/glitch/events'), [
     `/api/glitch/installs/${INSTALL_ID}/validate`,
     '/api/glitch/installs',
     `/api/glitch/installs/${INSTALL_ID}/validate`
@@ -180,22 +180,22 @@ test('recent successful validation grants a bounded offline grace period', async
   assert.equal(client.online, false);
 });
 
-test('analytics requires production permission and explicit consent', async () => {
-  let eventCalls = 0;
+test('analytics starts automatically whenever the Glitch backend is enabled', async () => {
+  const events = [];
   const client = createClient({
-    config: baseConfig({ analyticsEnabled: false }),
-    fetchImpl: async (url) => {
+    config: baseConfig({ environment: 'development' }),
+    fetchImpl: async (url, options) => {
       if (url === '/api/glitch/installs') return response({ data: { id: INSTALL_ID } }, 201);
       if (url.endsWith('/validate')) return response({ valid: true });
-      eventCalls++;
+      events.push(JSON.parse(options.body));
       return response({ data: {} }, 201);
     }
   });
   await client.initialize();
-  client.setAnalyticsConsent(true);
-  client.track('main_menu', 'viewed');
   await settle();
-  assert.equal(eventCalls, 0);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].step_key, 'app_launch');
+  assert.equal(events[0].action_key, 'session_started');
 });
 
 test('analytics payloads contain stable context, remove sensitive keys, and deduplicate', async () => {
@@ -209,7 +209,6 @@ test('analytics payloads contain stable context, remove sensitive keys, and dedu
     }
   });
   await client.initialize();
-  client.setAnalyticsConsent(true);
   await settle();
   events.length = 0;
   client.track('mission_01', 'objective_completed', {
@@ -220,7 +219,7 @@ test('analytics payloads contain stable context, remove sensitive keys, and dedu
   assert.equal(events.length, 1);
   assert.equal(events[0].game_install_id, INSTALL_ID);
   assert.equal(events[0].step_key, 'mission_01');
-  assert.equal(events[0].metadata.game_version, '1.1.1');
+  assert.equal(events[0].metadata.game_version, '1.1.2');
   assert.equal(events[0].metadata.password, undefined);
   assert.equal(events[0].metadata.private_message, undefined);
 });
@@ -234,7 +233,6 @@ test('analytics provider failures never reject gameplay calls', async () => {
     }
   });
   await client.initialize();
-  client.setAnalyticsConsent(true);
   assert.doesNotThrow(() => client.track('gameplay', 'started'));
   await settle();
   assert.ok(client.eventQueue.length >= 1);

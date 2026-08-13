@@ -136,15 +136,19 @@ test('checksum mismatch is rejected without contacting Glitch', async () => {
   assert.equal(upstreamCalls, 0);
 });
 
-test('behavior analytics route is unavailable outside production unless test mode is explicit', async () => {
-  await withServer({ env: enabledEnv({ NODE_ENV: 'development' }), fetchImpl: async () => upstreamJson({}) }, async (base) => {
+test('behavior analytics remains enabled outside production when Glitch is enabled', async () => {
+  let upstreamCalls = 0;
+  await withServer({
+    env: enabledEnv({ NODE_ENV: 'development' }),
+    fetchImpl: async () => { upstreamCalls++; return upstreamJson({ data: { id: 'event' } }, 201); }
+  }, async (base) => {
     const response = await fetch(`${base}/api/glitch/events`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ game_install_id: INSTALL_ID, step_key: 'main_menu', action_key: 'viewed' })
     });
-    assert.equal(response.status, 404);
-    assert.equal((await response.json()).code, 'ANALYTICS_DISABLED');
+    assert.equal(response.status, 201);
   });
+  assert.equal(upstreamCalls, 1);
 });
 
 test('behavior events forward only documented fields in production', async () => {
