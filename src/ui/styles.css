@@ -81,6 +81,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;}
 .brief em{color:var(--amber);font-style:normal}
 .menu-actions{display:flex;flex-direction:column;gap:9px;max-width:330px}
 .hint{margin-top:26px;font-size:10px;letter-spacing:.2em;color:rgba(216,210,198,.32)}
+.backend-status{margin-top:14px;max-width:52ch;font-size:10px;line-height:1.55;letter-spacing:.08em;color:var(--cyan)}
 
 .btn{
   position:relative;padding:13px 20px;letter-spacing:.22em;font-size:12px;
@@ -95,6 +96,15 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;}
 .btn.ghost{border-color:var(--hair);color:var(--bone-dim)}
 .btn.ghost:hover{color:var(--bone)}
 .btn.danger:hover{border-color:rgba(255,95,86,.5);background:rgba(255,95,86,.10);color:#ffb8b3}
+
+.overlay.choice{z-index:80;padding:24px}
+.choice-card{position:relative;z-index:1;width:min(620px,94vw);padding:34px;border:1px solid var(--hair2);background:rgba(5,7,12,.96);box-shadow:0 24px 90px rgba(0,0,0,.55)}
+.choice-card h2{margin:9px 0 18px;font-size:clamp(18px,3vw,27px);font-weight:400;letter-spacing:.16em}
+.choice-card p{font-size:12px;line-height:1.75;color:#aaa599;max-width:68ch}
+.choice-card .choice-note{margin-top:12px;color:rgba(216,210,198,.48);font-size:10px}
+.choice-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:26px;flex-wrap:wrap}
+.choice-actions .btn{text-align:center}
+.alert-text{color:var(--red)}
 
 .dossier{border:1px solid var(--hair);padding:22px;background:rgba(216,210,198,.02)}
 .dossier-row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px dashed var(--hair);font-size:11px;letter-spacing:.14em}

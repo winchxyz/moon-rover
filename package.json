@@ -1,12 +1,14 @@
 {
   "name": "regolith-anaxagoras",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "private": true,
   "description": "REGOLITH — The Silence at Anaxagoras. A GPU-rendered 3D lunar rover exploration game.",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js 5173"
+    "dev": "node server.js 5173",
+    "test": "node --test",
+    "deploy:glitch": "node scripts/deploy-glitch.mjs"
   },
   "engines": { "node": ">=18" }
 }

@@ -130,6 +130,14 @@ export class Game {
 
   log(text, kind) { this.hud.log(text, kind); }
 
+  event(step, action, metadata = {}, options = {}) {
+    try { this.telemetry?.track(step, action, metadata, options); } catch { /* analytics never affects play */ }
+  }
+
+  missionStep(index = this.missionIdx) {
+    return `mission_${String(index + 1).padStart(2, '0')}`;
+  }
+
   unlock(id) {
     if (this.unlocked.has(id)) return;
     const e = CODEX.find(c => c.id === id);
@@ -139,6 +147,7 @@ export class Game {
     this.log(`CODEX · ${e.title}`, 'good');
     this.audio.discovery();
     this.hud.flashDiscovery('CODEX UPDATED', e.title, e.meta);
+    this.event('codex', 'entry_unlocked', { entry_id: id, mission_index: this.missionIdx });
   }
 
   complete(objId) {
@@ -147,6 +156,10 @@ export class Game {
     this.audio.ui('ok');
     this.hud.missionDirty = true;
     const m = this.mission;
+    this.event(this.missionStep(), 'objective_completed', {
+      mission_index: this.missionIdx,
+      objective_id: objId
+    }, { dedupeKey: `objective:${this.missionIdx}:${objId}`, dedupeMs: 60_000 });
     if (m && m.objectives.every(o => this.objDone[o.id])) {
       setTimeout(() => this.advance(), 1400);
     }
@@ -162,12 +175,19 @@ export class Game {
   advance() {
     const done = this.mission;
     if (!done) return;
+    const completedIndex = this.missionIdx;
     this.missionIdx++;
     this.log(`${done.tag} COMPLETE — ${done.name}`, 'good');
     this.audio.discovery();
+    this.event(this.missionStep(completedIndex), 'mission_completed', {
+      mission_index: completedIndex,
+      play_duration_seconds: Math.round(this.met)
+    }, { dedupeKey: `mission-complete:${completedIndex}`, dedupeMs: 60_000 });
     if (this.mission) {
       this.hud.showCard(this.mission);
       this.hud.missionDirty = true;
+      this.event(this.missionStep(), 'mission_started', { mission_index: this.missionIdx },
+        { dedupeKey: `mission-start:${this.missionIdx}`, dedupeMs: 60_000 });
     } else {
       this.hud.showCard({
         tag: 'OPERATION ANAXAGORAS', name: 'TRANSMITTED',
@@ -175,6 +195,10 @@ export class Game {
         objectives: [{ id: '_', text: 'Free survey unlocked — the basin is yours' }]
       });
       this.freeRoam = true;
+      this.event('operation_complete', 'campaign_completed', {
+        play_duration_seconds: Math.round(this.met),
+        distance_meters: Math.round(this.rover.odo || 0)
+      }, { dedupeKey: 'campaign-completed', dedupeMs: 60_000 });
     }
     this.save();
   }
@@ -190,6 +214,10 @@ export class Game {
     this.scan.x = this.rover.pos.x; this.scan.z = this.rover.pos.z;
     this.audio.chirp();
     this.log('GPR SWEEP — 400 MHz, 78 m aperture');
+    this.event(this.mission ? this.missionStep() : 'free_survey', 'radar_scan_started', {
+      mission_index: this.missionIdx,
+      power_percent: Math.round(this.power)
+    });
     this.complete('scan');
   }
 
@@ -212,6 +240,11 @@ export class Game {
       this.log('NO RETURN — homogeneous regolith to 12 m');
     }
     this.hud.mapDirty = true;
+    this.event(this.mission ? this.missionStep() : 'free_survey', 'radar_scan_completed', {
+      mission_index: this.missionIdx,
+      returns_found: hits,
+      coherent_returns: deep
+    });
   }
 
   addMarker(a) {
@@ -269,6 +302,11 @@ export class Game {
     this.drill.active = true; this.drill.t = 0; this.drill.target = a;
     this.rover.drilling = true;
     this.log(a ? `DRILLING · TARGET AT ${a.depth.toFixed(1)} m` : 'DRILLING · BLIND CORE');
+    this.event(this.mission ? this.missionStep() : 'free_survey', 'drill_started', {
+      mission_index: this.missionIdx,
+      target_type: a?.type || 'blind',
+      target_depth_meters: a ? Number(a.depth.toFixed(1)) : null
+    });
   }
 
   _finishDrill() {
@@ -290,6 +328,13 @@ export class Game {
     this.audio.discovery();
     this.hud.flashDiscovery('SAMPLE SECURED', def.name, def.desc);
     this.log(`SAMPLE ${String(this.bay.length).padStart(2, '0')} · ${def.name}`, def.rare ? 'good' : null);
+    this.event(this.mission ? this.missionStep() : 'free_survey', 'sample_secured', {
+      mission_index: this.missionIdx,
+      sample_type: type,
+      rare: !!def.rare,
+      sample_bay_count: this.bay.length,
+      drill_duration_seconds: Number(this.drill.t.toFixed(1))
+    });
     // the excavation stays in the ground, right where the bit went in
     this.terrain.excavate(this.rover.armTarget.x, this.rover.armTarget.z, 1.4, 0.85);
   }
@@ -315,6 +360,11 @@ export class Game {
     this.dust.spawn(60, bx, this.terrain.heightAt(bx, bz), bz, 1.4, 0.6);
     this.audio.ui('ok'); this.audio.radio();
     this.log(`RELAY ${this.relaysPlaced}/3 DEPLOYED AT ${h.toFixed(0)} m`, 'good');
+    this.event(this.mission ? this.missionStep() : 'free_survey', 'relay_deployed', {
+      mission_index: this.missionIdx,
+      relay_count: this.relaysPlaced,
+      elevation_meters: Math.round(h)
+    });
     this.bump('relays');
     if (this.relaysPlaced >= 3) this.unlock('memo');
     this.hud.mapDirty = true;
@@ -364,6 +414,11 @@ export class Game {
       if (this.rover.vel.length() > 1.2) {
         this.drill.active = false; this.rover.drilling = false;
         this.log('DRILL CYCLE ABORTED — CHASSIS MOVED', 'warn'); this.audio.ui('bad');
+        this.event(this.mission ? this.missionStep() : 'free_survey', 'drill_aborted', {
+          mission_index: this.missionIdx,
+          reason: 'chassis_moved',
+          elapsed_seconds: Number(this.drill.t.toFixed(1))
+        });
       } else if (this.drill.t >= OPS.drillTime) {
         this.drill.active = false; this.rover.drilling = false;
         this._finishDrill();
@@ -467,6 +522,8 @@ export class Game {
         this.unlock('log6'); this.unlock('log11');
         this.log('LOCAL STORE RECOVERED — 3 LOG FRAGMENTS', 'good');
         this.audio.radio();
+        this.event(this.missionStep(), 'station_data_recovered', { mission_index: this.missionIdx },
+          { dedupeKey: 'station-data-recovered', dedupeMs: 60_000 });
       }
     } else this.interact.t = 0;
     this.hud.interactProgress = key ? this.interact.t / 1.6 : 0;
@@ -486,6 +543,10 @@ export class Game {
           this.dust.spawn(90, this.rover.pos.x, this.rover.pos.y - 1, this.rover.pos.z, 2.2, 1.6);
           this.audio.thud(1.4);
           this.log('CHASSIS RIGHTED — 4 % INTEGRITY LOST', 'warn');
+          this.event(this.mission ? this.missionStep() : 'free_survey', 'chassis_righted', {
+            mission_index: this.missionIdx,
+            hull_percent: Math.round(this.hull)
+          });
         }
       }
     } else this.flipTimer = 0;
@@ -515,6 +576,12 @@ export class Game {
     this.hud.hit(clamp(amount / 12, 0.15, 1));
     this.audio.thud(clamp(amount / 6, 0.4, 2));
     if (amount > 4) this.log(`IMPACT — ${amount.toFixed(0)} % INTEGRITY${reason ? ' · ' + reason : ''}`, 'bad');
+    if (amount > 1) this.event(this.mission ? this.missionStep() : 'free_survey', 'damage_taken', {
+      mission_index: this.missionIdx,
+      amount_percent: Number(amount.toFixed(1)),
+      source: String(reason || 'impact').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+      hull_percent: Math.round(this.hull)
+    }, { dedupeMs: 1500 });
     if (this.hull <= 0) this.strand();
   }
 
@@ -524,6 +591,10 @@ export class Game {
     this.rover.placeAt(HOME.x - 9, HOME.z - 9, 2.2);
     this.power = Math.max(this.power, 35);
     this.audio.ui('bad');
+    this.event(this.mission ? this.missionStep() : 'free_survey', 'recovery_triggered', {
+      mission_index: this.missionIdx,
+      reason: 'critical_damage'
+    });
   }
 
   /* ============================================================

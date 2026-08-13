@@ -96,7 +96,10 @@ that is the whole install.
 Chrome/Edge 89+, Firefox 108+, Safari 16.4+, iOS 16.4+. It needs WebGL2 and —
 because there is no build step — native **import maps**, and it is the import
 map rather than WebGL2 that sets those floors. Works on phones and tablets with
-twin thumbsticks. Progress autosaves to `localStorage` every 20 seconds.
+twin thumbsticks. Progress autosaves to `localStorage` every 20 seconds. An
+optional Node deployment can also validate Glitch installs, synchronize cloud
+saves, and send consented production behavior events; static hosting remains
+fully supported without those services.
 
 ### Run it locally
 
@@ -120,6 +123,18 @@ It is a static site with no build step, so GitHub Pages needs nothing special:
 push the repo, then **Settings → Pages → Source: Deploy from a branch**, `main`
 and `/ (root)`. Every path is relative, so it works from a subdirectory without
 configuration.
+
+### Optional Glitch online services
+
+`npm start` also supports a disabled-by-default, same-origin Glitch proxy. It
+keeps the runtime title token out of browser code while providing install
+validation, cloud saves, 30-second retention heartbeats, and behavior events.
+Without private server configuration the proxy stays off and the game behaves
+exactly like the static build.
+
+Configuration, privacy rules, the event taxonomy, and deployment guidance are
+documented in [`docs/ONLINE_SERVICES.md`](docs/ONLINE_SERVICES.md). Never put a
+title token or distribution token in `runtime-config.js`, `src/`, or Git.
 
 ---
 
@@ -469,8 +484,11 @@ filter and stereo position.
 ## Layout
 
 ```
-index.html          shell, boot screen, HUD markup
-server.js           zero-dependency static server
+index.html          shell, boot screen, HUD and online-service prompts
+runtime-config.js   secret-free static-hosting defaults
+server.js           static server + optional same-origin Glitch proxy
+backend/
+  glitch-proxy.js   route allowlist, validation, auth injection
 src/
   main.js           bootstrap, loading, menus, frame loop        689
   core/
@@ -478,7 +496,9 @@ src/
     input.js        keyboard / mouse / gamepad / touch           203
     audio.js        procedural WebAudio                          413
     rng.js          deterministic noise shared by CPU and bake    81
-    save.js         localStorage                                  20
+    save.js         local save + cloud synchronization metadata
+  services/
+    backend.js      install validation, cloud save, analytics client
   world/
     terrain.js      bake, clipmap, excavation, trails, sun mask 1106
     props.js        boulders, the sled, Beacon-9, relays          553
@@ -494,14 +514,23 @@ src/
     hud.js          instruments, minimap, codex                   528
     styles.css      scale system, three-row HUD grid, responsive  592
 vendor/three/       three.js r160, postprocessing + geometry addons (MIT)
-docs/               the screenshots in this README
+test/               Node integration and contract tests
+docs/               screenshots and online-service documentation
 ```
 
 ## Development
 
-`node server.js 5173 --shots` adds a `POST /__shot?n=<name>&ext=<ext>` endpoint
-that writes an image into `.shots/` — used to capture frames while testing. Off
-by default; the release server accepts no writes of any kind.
+`node server.js 5173 --shots` adds a loopback-only `POST
+/__shot?n=<name>&ext=<ext>` endpoint that writes an image into `.shots/` — used
+to capture frames while testing. It is off by default. Production writes are
+limited to the allowlisted Glitch proxy and never write player data to the
+application filesystem.
+
+Run the online-service and security suite with:
+
+```bash
+npm test
+```
 
 `window.REGOLITH` exposes the running app, plus `REGOLITH.tick(dt)` to advance a
 single frame by hand — which is how every screenshot in this README was taken,
