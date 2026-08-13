@@ -5,16 +5,18 @@ Regolith 1.1 adds an optional same-origin Node backend for Glitch install valida
 ## Current production deployment
 
 - Version: `1.1.2`
-- Active Glitch build: `019ff8d1-faa2-7180-99a8-16da93dc915c`
-- Previous Glitch build: `019ff8bd-f4a9-7395-b93d-bbdee96ba609` (`1.1.1`)
+- Deployment label: `1.1.2-redeploy`
+- Active Glitch build: `019ff951-7bc9-73f3-a127-57779898a0ef`
+- Previous Glitch build: `019ff8d1-faa2-7180-99a8-16da93dc915c` (`1.1.2`)
 - Deployment type: `node`
 - Build type: `production`
-- Status verified on August 13, 2026 at 01:58 UTC: `ready`, active
+- Status verified on August 13, 2026 at 04:21 UTC: `ready`, active
+- Azure revision: `regolith-node--0000002`, healthy, two replicas, 100% traffic
 - Runtime URL: `https://regolith-node.graywater-acc59434.eastus.azurecontainerapps.io`
 
-The post-deploy smoke test verified that runtime configuration was enabled without exposing a token, the direct runtime loaded through the main menu, install validation returned `valid: true`, and the automatic `app_launch/session_started` behavior event returned HTTP 201 without a consent prompt. The smoke-test install was a guest, so Cloud Save returned the documented HTTP 403 `GUEST_NOT_ALLOWED`; successful and conflict cloud-save paths are covered by the automated test suite with a login-backed install response.
+The post-deploy smoke test verified that runtime configuration was enabled without exposing a token, the direct runtime loaded through the main menu, install validation returned `valid: true`, and behavior events returned HTTP 201 without a consent prompt. The authenticated Glitch play page returned HTTP 200 from `/play`, embedded the Node URL in a visible Regolith iframe, reported `Online services connected`, and entered Mission 01 without showing Aegis/GPU startup or a launch error.
 
-The Glitch public play page remains blocked by a platform metadata/routing mismatch even though the Node runtime is healthy. See [Glitch public play incident — August 13, 2026](GLITCH_PLAY_INCIDENT_2026-08-13.md) for the full evidence and recommended Glitch-side fix.
+The previous Glitch metadata/routing incident is resolved. See [Glitch public play incident — August 13, 2026](GLITCH_PLAY_INCIDENT_2026-08-13.md) for the original evidence, platform remediation, and resolution verification. The title still reports `is_live: false`, `approval_status: 0`, and no distribution-fee access, so an anonymous/non-developer launch remains a separate publishing-policy check.
 
 ## Architecture
 

@@ -1,8 +1,43 @@
 # Glitch public play incident — Regolith
 
+## Resolution status
+
+**Resolved and verified on August 13, 2026 at 04:21 UTC.**
+
+The Glitch platform fixes were deployed, and Regolith was redeployed from commit `82f927f` as:
+
+| Resource | Resolved value |
+| --- | --- |
+| Glitch build | `019ff951-7bc9-73f3-a127-57779898a0ef` |
+| Deployment label | `1.1.2-redeploy` |
+| Runtime game version | `1.1.2` |
+| Title deployment type | `node` |
+| Build deployment type | `node` |
+| Build state | `ready`, active |
+| Azure revision | `regolith-node--0000002` |
+| Azure health | Healthy, two replicas, 100% traffic |
+
+Resolution verification in an authenticated Glitch browser session:
+
+1. The server-rendered title metadata reported `deployment_type: "node"`.
+2. The new active build reported `deployment_type: "node"`, `status: "ready"`, and the correct Node CDN URL.
+3. `POST /api/titles/6bd2c447-1770-441b-b94b-bceed5e81e87/play` returned HTTP 200 at 04:14:31 UTC.
+4. The page created a visible iframe titled `Regolith` whose source was the production Node URL.
+5. The page did not display Aegis, GPU allocation, OS boot, timeout, or no-active-build messaging.
+6. The embedded game completed validation and displayed `Online services connected.`
+7. The main menu rendered and **Begin Descent** successfully entered Mission 01.
+8. Validation calls returned HTTP 200 and behavior events returned HTTP 201.
+
+The original root-cause report below remains as the historical incident record and durable prevention guidance.
+
+### Remaining verification notes
+
+- The title still reports `is_live: false`, `approval_status: 0`, `requires_distribution_fee: true`, and `has_distribution_fee_access: false`. The authenticated developer flow works, but anonymous/non-developer availability was not proven and should be checked against Glitch's publishing rules.
+- The controlled Chrome test session could not acquire Pointer Lock and logged `WrongDocumentError`. The same result occurred on the direct top-level Node URL, not only inside Glitch's iframe, while the canvas remained connected and visible. This does not indicate a recurrence of the launcher incident, but a manual human mouse-look check is still recommended.
+
 ## Incident summary
 
-As of August 13, 2026 at 01:58 UTC, Regolith's public Glitch play page cannot launch the game even though the active Node build and its Azure Container App are healthy.
+On August 13, 2026 at 01:58 UTC, Regolith's public Glitch play page could not launch the game even though the active Node build and its Azure Container App were healthy.
 
 The failure is a Glitch platform metadata/routing inconsistency:
 
@@ -13,16 +48,16 @@ The failure is a Glitch platform metadata/routing inconsistency:
 
 This report contains no title token, distribution token, session credential, private header, or player identifier.
 
-## Impact
+## Impact during the incident
 
-- Public players cannot start Regolith from the Glitch play page.
-- The launch screen remains in the Aegis allocation/boot sequence and can eventually report that the server took too long to start.
-- The game's direct production URL works normally, so the outage is isolated to Glitch's title-to-build launch routing.
-- Install validation, behavior analytics, and the Node application remain operational when the direct production URL is used.
+- Public players could not start Regolith from the Glitch play page.
+- The launch screen remained in the Aegis allocation/boot sequence and could eventually report that the server took too long to start.
+- The game's direct production URL worked normally, so the outage was isolated to Glitch's title-to-build launch routing.
+- Install validation, behavior analytics, and the Node application remained operational when the direct production URL was used.
 
-Suggested severity: **High — production launch blocked for all public Glitch play-page users**.
+Incident severity: **High — production launch blocked for Glitch play-page users**.
 
-## Affected resources
+## Affected resources at incident time
 
 | Resource | Value |
 | --- | --- |
@@ -39,9 +74,9 @@ Suggested severity: **High — production launch blocked for all public Glitch p
 | Active Azure revision | `regolith-node--0000001` |
 | Active image | `glitchgames.azurecr.io/regolith-node:1786585979` |
 
-## Current inconsistent state
+## State observed during the incident
 
-The server-rendered `window.__ROUTE_DATA__` on the public play page reports this state:
+The server-rendered `window.__ROUTE_DATA__` on the public play page reported this state:
 
 | Field | Title record | Active build |
 | --- | --- | --- |
