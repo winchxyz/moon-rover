@@ -34,10 +34,7 @@ const App = {
   elapsed: 0, sunAz: 4.35, paused: false
 };
 
-const backend = createBrowserBackend({
-  onStatus: showBackendStatus,
-  onConflict: promptCloudConflict
-});
+const backend = createBrowserBackend({ onStatus: showBackendStatus });
 App.backend = backend;
 
 function guessQuality() {
@@ -72,24 +69,6 @@ function showBackendStatus(message) {
   if (!el) return;
   el.textContent = message || '';
   el.classList.toggle('hidden', !message);
-}
-
-function promptCloudConflict(details = {}) {
-  const overlay = $('cloudConflict');
-  const detail = $('cloudConflictDetail');
-  if (details.serverVersion) detail.textContent =
-    `The cloud copy is version ${details.serverVersion}. Your local save remains safe until you choose.`;
-  overlay.classList.remove('hidden');
-  return new Promise((resolve) => {
-    const finish = (choice) => {
-      overlay.classList.add('hidden');
-      $('cloudUseServer').onclick = null;
-      $('cloudUseClient').onclick = null;
-      resolve(choice);
-    };
-    $('cloudUseServer').onclick = () => finish('keep_server');
-    $('cloudUseClient').onclick = () => finish('use_client');
-  });
 }
 
 /* Optional imagery. The game generates everything it needs, so the repo ships

@@ -89,7 +89,8 @@ Cloud saves require a login-backed install with a Glitch `user_id`. Guest player
 - Matching checksums are deduplicated.
 - A remote-only save is restored locally after its checksum is verified.
 - A local-only or locally newer save uploads in the background.
-- A 409 conflict opens a player choice between `keep_server` and `use_client`, then calls the documented resolve endpoint. No conflict is overwritten silently.
+- When Glitch cloud saves are available, the cloud copy is authoritative for ambiguous divergence. The verified cloud payload replaces the local copy automatically without a player prompt.
+- A 409 upload conflict automatically calls the documented resolve endpoint with `keep_server`, downloads and checksum-verifies the winning cloud record, then replaces the local copy.
 - A blocked, failed, or offline provider leaves the local save intact and never pauses gameplay.
 
 ## Behavior analytics contract
@@ -139,7 +140,7 @@ The Node test suite covers:
 - install creation, desktop launch IDs, validation, recreation, denial, and offline grace;
 - automatic analytics startup whenever Glitch is enabled;
 - event context, sensitive-field removal, duplicate prevention, and provider failure;
-- save encoding, decoded-byte checksum verification, upload fields, remote restore, and 409 resolution;
+- save encoding, decoded-byte checksum verification, upload fields, automatic cloud-authoritative restore, and 409 resolution;
 - exact upstream routes and bearer placement;
 - server-only file blocking, path traversal, origin checks, field allowlists, and disabled feature routes.
 

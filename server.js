@@ -71,7 +71,7 @@ function runtimeConfig(config) {
       apiOrigin: config.apiOrigin,
       cloudSavesEnabled: config.enabled && config.cloudSavesEnabled,
       analyticsEnabled: config.enabled && config.analyticsEnabled,
-      gameVersion: '1.1.2',
+      gameVersion: '1.1.3',
       buildType: 'production'
     }
   };

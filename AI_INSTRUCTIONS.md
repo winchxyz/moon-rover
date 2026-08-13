@@ -21,7 +21,7 @@
 - `user_install_id` is the stable local identifier. `install_id` is the Glitch UUID returned by create install. Never swap them.
 - Cloud save slot `0` is the autosave slot.
 - Encode the raw UTF-8 JSON bytes as base64 and calculate lowercase SHA-256 over those decoded bytes.
-- Preserve the last server `version` as `base_version`. A 409 must be shown to the player and resolved through the documented endpoint; never overwrite silently.
+- Preserve the last server `version` as `base_version`. When Glitch cloud saves are available, resolve ambiguous divergence and 409 conflicts automatically with `keep_server`, then download and checksum-verify the cloud payload before replacing the local copy. Do not show a cloud-versus-device choice.
 - Local `localStorage` saving remains authoritative when Glitch is disabled, offline, blocked, or unavailable.
 
 ## Validation

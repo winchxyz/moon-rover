@@ -35,13 +35,13 @@ function baseConfig(overrides = {}) {
     apiOrigin: '',
     cloudSavesEnabled: true,
     analyticsEnabled: true,
-    gameVersion: '1.1.2',
+    gameVersion: '1.1.3',
     buildType: 'production',
     ...overrides
   };
 }
 
-function createClient({ fetchImpl, config, storage, search = '', now, onConflict, timers = false } = {}) {
+function createClient({ fetchImpl, config, storage, search = '', now, timers = false } = {}) {
   return new RegolithBackend({
     config: config || baseConfig(),
     storage: storage || new MemoryStorage(),
@@ -52,8 +52,7 @@ function createClient({ fetchImpl, config, storage, search = '', now, onConflict
     matchMediaImpl: () => ({ matches: false }),
     now: now || (() => Date.parse('2026-08-13T12:00:00Z')),
     setTimeoutImpl: timers ? setTimeout : () => 1,
-    clearTimeoutImpl: timers ? clearTimeout : () => {},
-    onConflict
+    clearTimeoutImpl: timers ? clearTimeout : () => {}
   });
 }
 
@@ -117,7 +116,7 @@ test('install creation is followed by validation and identifiers are persisted',
   assert.equal(calls[0].url, '/api/glitch/installs');
   assert.equal(calls[1].url, `/api/glitch/installs/${INSTALL_ID}/validate`);
   assert.equal(calls[0].body.platform, 'web');
-  assert.equal(calls[0].body.game_version, '1.1.2');
+  assert.equal(calls[0].body.game_version, '1.1.3');
   assert.ok(calls[0].body.user_install_id);
   assert.equal(storage.getItem('regolith.glitch.install_id.v1'), INSTALL_ID);
 });
@@ -219,7 +218,7 @@ test('analytics payloads contain stable context, remove sensitive keys, and dedu
   assert.equal(events.length, 1);
   assert.equal(events[0].game_install_id, INSTALL_ID);
   assert.equal(events[0].step_key, 'mission_01');
-  assert.equal(events[0].metadata.game_version, '1.1.2');
+  assert.equal(events[0].metadata.game_version, '1.1.3');
   assert.equal(events[0].metadata.password, undefined);
   assert.equal(events[0].metadata.private_message, undefined);
 });
@@ -287,13 +286,13 @@ test('remote-only cloud progress is checksum-verified and restored locally', asy
   assert.equal(store.metadata.cloudChecksum, encoded.checksum);
 });
 
-test('409 cloud conflict is surfaced and resolved through the documented route', async () => {
+test('initial divergent progress automatically restores the cloud copy', async () => {
   const local = { missionIdx: 4, met: 500 };
-  const remoteEncoded = await encodeCloudSave({ missionIdx: 2, met: 200 }, webcrypto);
+  const remote = { missionIdx: 2, met: 200 };
+  const remoteEncoded = await encodeCloudSave(remote, webcrypto);
   const store = saveStore(local);
   const calls = [];
   const client = createClient({
-    onConflict: async () => 'use_client',
     fetchImpl: async (url, options = {}) => {
       const body = options.body && JSON.parse(options.body);
       calls.push({ url, body, method: options.method });
@@ -302,20 +301,94 @@ test('409 cloud conflict is surfaced and resolved through the documented route',
       if (options.method === 'GET') return response({ data: [{
         id: SAVE_ID, slot_index: 0, version: 3, ...remoteEncoded
       }] });
-      if (url.endsWith('/saves')) return response({
-        status: 'conflict', save_id: SAVE_ID, conflict_id: CONFLICT_ID,
-        server_version: 3, your_base_version: 0
-      }, 409);
-      if (url.endsWith(`/saves/${SAVE_ID}/resolve`)) return response({
-        data: { id: SAVE_ID, version: 4, checksum: body.choice === 'use_client' ? (await encodeCloudSave(local, webcrypto)).checksum : remoteEncoded.checksum }
-      });
       if (url === '/api/glitch/events') return response({ data: {} }, 201);
       throw new Error(`Unexpected ${url}`);
     }
   });
   await client.initialize();
   await client.syncInitialSave(store);
+  assert.deepEqual(store.value, remote);
+  assert.equal(store.metadata.cloudVersion, 3);
+  assert.equal(calls.some(item => item.url.endsWith('/saves') && item.method === 'POST'), false);
+  assert.equal(calls.some(item => item.url.includes('/resolve')), false);
+});
+
+test('409 cloud conflict automatically keeps and restores the cloud copy', async () => {
+  const local = { missionIdx: 4, met: 500 };
+  const baseCloud = { missionIdx: 2, met: 200 };
+  const winningCloud = { missionIdx: 3, met: 350 };
+  const baseEncoded = await encodeCloudSave(baseCloud, webcrypto);
+  const winningEncoded = await encodeCloudSave(winningCloud, webcrypto);
+  const store = saveStore(local, { cloudVersion: 3, cloudChecksum: baseEncoded.checksum });
+  const calls = [];
+  let resolved = false;
+  const client = createClient({
+    fetchImpl: async (url, options = {}) => {
+      const body = options.body && JSON.parse(options.body);
+      calls.push({ url, body, method: options.method });
+      if (url === '/api/glitch/installs') return response({ data: { id: INSTALL_ID, user_id: 'user' } }, 201);
+      if (url.endsWith('/validate')) return response({ valid: true, user_id: 'user' });
+      if (options.method === 'GET') return response({ data: [{
+        id: SAVE_ID, slot_index: 0, version: resolved ? 4 : 3,
+        ...(resolved ? winningEncoded : baseEncoded)
+      }] });
+      if (url.endsWith('/saves')) return response({
+        status: 'conflict', save_id: SAVE_ID, conflict_id: CONFLICT_ID,
+        server_version: 4, your_base_version: 3
+      }, 409);
+      if (url.endsWith(`/saves/${SAVE_ID}/resolve`)) {
+        resolved = true;
+        return response({ data: { id: SAVE_ID, version: 4, checksum: winningEncoded.checksum } });
+      }
+      if (url === '/api/glitch/events') return response({ data: {} }, 201);
+      throw new Error(`Unexpected ${url}`);
+    }
+  });
+  await client.initialize();
+  await client.syncInitialSave(store);
+  for (let attempt = 0; attempt < 10 && client.cloudSending; attempt++) await settle();
   const resolveCall = calls.find(item => item.url.endsWith(`/saves/${SAVE_ID}/resolve`));
-  assert.deepEqual(resolveCall.body, { conflict_id: CONFLICT_ID, choice: 'use_client' });
+  assert.deepEqual(resolveCall.body, { conflict_id: CONFLICT_ID, choice: 'keep_server' });
+  assert.deepEqual(store.value, winningCloud);
   assert.equal(store.metadata.cloudVersion, 4);
+  assert.equal(store.metadata.cloudChecksum, winningEncoded.checksum);
+});
+
+test('resolved cloud conflict never retries stale local data when restore is unavailable', async () => {
+  const local = { missionIdx: 4, met: 500 };
+  const baseEncoded = await encodeCloudSave({ missionIdx: 2, met: 200 }, webcrypto);
+  const store = saveStore(local, { cloudVersion: 3, cloudChecksum: baseEncoded.checksum });
+  const calls = [];
+  let resolved = false;
+  const client = createClient({
+    fetchImpl: async (url, options = {}) => {
+      const body = options.body && JSON.parse(options.body);
+      calls.push({ url, body, method: options.method });
+      if (url === '/api/glitch/installs') return response({ data: { id: INSTALL_ID, user_id: 'user' } }, 201);
+      if (url.endsWith('/validate')) return response({ valid: true, user_id: 'user' });
+      if (options.method === 'GET' && !resolved) return response({ data: [{
+        id: SAVE_ID, slot_index: 0, version: 3, ...baseEncoded
+      }] });
+      if (options.method === 'GET' && resolved) throw new Error('temporary read failure');
+      if (url.endsWith('/saves')) return response({
+        status: 'conflict', save_id: SAVE_ID, conflict_id: CONFLICT_ID,
+        server_version: 4, your_base_version: 3
+      }, 409);
+      if (url.endsWith(`/saves/${SAVE_ID}/resolve`)) {
+        resolved = true;
+        return response({ data: { id: SAVE_ID, version: 4, checksum: baseEncoded.checksum } });
+      }
+      if (url === '/api/glitch/events') return response({ data: {} }, 201);
+      throw new Error(`Unexpected ${url}`);
+    }
+  });
+  await client.initialize();
+  await client.syncInitialSave(store);
+  for (let attempt = 0; attempt < 10 && client.cloudSending; attempt++) await settle();
+  const resolveCall = calls.find(item => item.url.endsWith(`/saves/${SAVE_ID}/resolve`));
+  assert.deepEqual(resolveCall.body, { conflict_id: CONFLICT_ID, choice: 'keep_server' });
+  assert.equal(client.cloudDisabled, true);
+  assert.equal(client.cloudPending, null);
+  assert.deepEqual(store.value, local);
+  assert.equal(calls.filter(item => item.url.endsWith('/saves') && item.method === 'POST').length, 1);
 });

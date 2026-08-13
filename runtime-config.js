@@ -8,7 +8,7 @@ window.REGOLITH_RUNTIME_CONFIG = Object.freeze({
     apiOrigin: '',
     cloudSavesEnabled: false,
     analyticsEnabled: false,
-    gameVersion: '1.1.2',
+    gameVersion: '1.1.3',
     buildType: 'production'
   }
 });

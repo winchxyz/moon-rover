@@ -144,8 +144,7 @@ export class RegolithBackend {
     now = () => Date.now(),
     setTimeoutImpl = globalThis.setTimeout?.bind(globalThis),
     clearTimeoutImpl = globalThis.clearTimeout?.bind(globalThis),
-    onStatus = () => {},
-    onConflict = async () => 'keep_server'
+    onStatus = () => {}
   } = {}) {
     this.config = {
       enabled: !!config.enabled,
@@ -154,12 +153,12 @@ export class RegolithBackend {
       apiOrigin: String(config.apiOrigin || '').replace(/\/$/, ''),
       cloudSavesEnabled: !!config.cloudSavesEnabled,
       analyticsEnabled: !!config.analyticsEnabled,
-      gameVersion: config.gameVersion || '1.1.2',
+      gameVersion: config.gameVersion || '1.1.3',
       buildType: config.buildType || 'production'
     };
     Object.assign(this, {
       storage, fetchImpl, cryptoImpl, locationImpl, navigatorImpl, matchMediaImpl,
-      now, setTimeoutImpl, clearTimeoutImpl, onStatus, onConflict
+      now, setTimeoutImpl, clearTimeoutImpl, onStatus
     });
     this.valid = false;
     this.online = false;
@@ -455,7 +454,16 @@ export class RegolithBackend {
         this.onStatus('Newer cloud progress restored.');
         return;
       }
-      await this._uploadSave(local, { ...meta, cloudVersion: meta.cloudVersion || 0 });
+      saveStore.replaceFromCloud(remoteData, remote);
+      this.track('cloud_save', 'conflict_detected', {
+        server_version: remote.version,
+        local_base_version: meta.cloudVersion || 0,
+        automatic: true
+      });
+      this.track('cloud_save', 'conflict_resolved', {
+        choice: 'keep_server', version: remote.version, automatic: true
+      });
+      this.onStatus('Cloud progress restored automatically.');
     } catch (error) {
       if (error.status === 403 && error.code === 'GUEST_NOT_ALLOWED') {
         this.cloudDisabled = true;
@@ -535,31 +543,45 @@ export class RegolithBackend {
         server_version: conflict.server_version,
         local_base_version: conflict.your_base_version
       });
-      const choice = await this.onConflict({
-        localUpdatedAt: meta.updatedAt || nowIso,
-        serverVersion: conflict.server_version
-      });
+      const choice = 'keep_server';
       const resolvedResponse = await this._request(
         `/api/glitch/installs/${encodeURIComponent(this.installId)}/saves/${encodeURIComponent(conflict.save_id)}/resolve`,
         { method: 'POST', body: { conflict_id: conflict.conflict_id, choice } });
       const resolved = resolvedResponse.data || resolvedResponse;
       this.cloudVersion = resolved.version || conflict.server_version || this.cloudVersion;
-      this.cloudChecksum = resolved.checksum || (choice === 'use_client' ? encoded.checksum : null);
-      if (choice === 'keep_server') {
-        const latestResponse = await this._request(
-          `/api/glitch/installs/${encodeURIComponent(this.installId)}/saves?include_payload=1`);
-        const latest = (latestResponse.data || []).find(record => record.slot_index === 0);
-        if (latest) {
-          const cloudData = await decodeCloudSave(latest, this.cryptoImpl);
-          this.cloudVersion = latest.version;
-          this.cloudChecksum = latest.checksum;
-          this.saveStore?.replaceFromCloud(cloudData, latest);
+      this.cloudChecksum = resolved.checksum || null;
+      try {
+        let latest = resolved?.payload ? resolved : null;
+        if (!latest) {
+          const latestResponse = await this._request(
+            `/api/glitch/installs/${encodeURIComponent(this.installId)}/saves?include_payload=1`);
+          latest = (latestResponse.data || []).find(record => record.slot_index === 0) || null;
         }
-      } else {
-        this.saveStore?.markCloudSynced(this.cloudVersion, this.cloudChecksum);
+        if (!latest) throw new BackendApiError(502, {
+          code: 'CLOUD_SAVE_MISSING', message: 'The resolved cloud save could not be loaded.'
+        });
+        const cloudData = await decodeCloudSave(latest, this.cryptoImpl);
+        this.cloudVersion = latest.version || this.cloudVersion;
+        this.cloudChecksum = latest.checksum;
+        this.saveStore?.replaceFromCloud(cloudData, latest);
+      } catch (error) {
+        // The server already kept its cloud copy. Disable further uploads for
+        // this session so stale local data cannot overwrite it after a
+        // transient read failure; the next online launch will restore it.
+        this.cloudDisabled = true;
+        this.track('cloud_save', 'conflict_resolved', {
+          choice, version: this.cloudVersion, automatic: true, local_restore: 'deferred'
+        });
+        this.track('cloud_save', 'sync_failed', {
+          error_type: error.code || 'restore_unavailable', phase: 'restore_after_conflict'
+        });
+        this.onStatus('Cloud copy kept. It will restore on the next online launch.');
+        return;
       }
-      this.track('cloud_save', 'conflict_resolved', { choice, version: this.cloudVersion });
-      this.onStatus(choice === 'keep_server' ? 'Cloud progress restored.' : 'This device was saved to the cloud.');
+      this.track('cloud_save', 'conflict_resolved', {
+        choice, version: this.cloudVersion, automatic: true, local_restore: 'completed'
+      });
+      this.onStatus('Cloud progress restored automatically.');
     }
   }
 }
