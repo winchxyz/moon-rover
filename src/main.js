@@ -7,6 +7,7 @@ import { Engine, QUALITY } from './core/engine.js';
 import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { Save } from './core/save.js';
+import { BackendAccessError, createBrowserBackend } from './services/backend.js';
 import { clamp, sstep, lerp } from './core/rng.js';
 import { bakeTerrain, Terrain, PLAYABLE_R } from './world/terrain.js';
 import { Sky } from './world/sky.js';
@@ -33,6 +34,9 @@ const App = {
   elapsed: 0, sunAz: 4.35, paused: false
 };
 
+const backend = createBrowserBackend({ onStatus: showBackendStatus });
+App.backend = backend;
+
 function guessQuality() {
   // deviceMemory is Chromium-only, so on Safari and Firefox the core count has
   // to carry the guess by itself rather than silently reading as 4 GB.
@@ -58,6 +62,13 @@ const bar = $('loadfill'), loadtext = $('loadtext');
 function progress(p, msg) {
   bar.style.width = (clamp(p, 0, 1) * 100).toFixed(1) + '%';
   if (msg) loadtext.textContent = msg;
+}
+
+function showBackendStatus(message) {
+  const el = $('backendStatus');
+  if (!el) return;
+  el.textContent = message || '';
+  el.classList.toggle('hidden', !message);
 }
 
 /* Optional imagery. The game generates everything it needs, so the repo ships
@@ -98,6 +109,11 @@ function loadTextures() {
 }
 
 async function boot() {
+  progress(0.005, 'verifying online services…');
+  await backend.initialize();
+  await backend.syncInitialSave(Save);
+  Save.setSyncHandler((data, meta) => backend.queueCloudSave(data, meta));
+
   progress(0.01, 'initialising telemetry link…');
 
   const engine = new Engine($('stage'), App.settings.quality);
@@ -164,7 +180,8 @@ async function boot() {
 
   const input = new Input($('stage'));
   const game = new Game({
-    terrain, rover, props, dust, sky, audio, hud, engine, rig, scene: engine.scene, input
+    terrain, rover, props, dust, sky, audio, hud, engine, rig, scene: engine.scene, input,
+    telemetry: backend
   });
   game.tc = App.settings.tc;
 
@@ -202,6 +219,7 @@ function showMenu() {
      sled on the floor of <b>Anaxagoras</b> at seventy-three degrees north.<br><br>
      Survey the basin. Restore the relay chain. Find out what is under the floor —
      and why the dossier does not say what the station was <em>for</em>.`;
+  backend.track('main_menu', 'viewed', { has_local_save: !!saved }, { dedupeMs: 5000 });
 }
 
 function startGame(freeRoam, loadSaved) {
@@ -228,6 +246,13 @@ function startGame(freeRoam, loadSaved) {
   App.input.showTouch(true);
   App.hud.log('MU-7 CASSIOPEIA — SYSTEMS NOMINAL', 'good');
   App.hud.log('SELENE DIRECTORATE · FAR-SIDE SURVEY DIVISION');
+  const mode = freeRoam ? 'free_survey' : 'campaign';
+  backend.startPlay(mode, resumed, {
+    mission_index: App.game.missionIdx,
+    input_method: inputMethod()
+  });
+  App.game.event(freeRoam ? 'free_survey' : `mission_${String(App.game.missionIdx + 1).padStart(2, '0')}`,
+    resumed ? 'resumed' : 'started', { input_method: inputMethod() });
 
   if (!resumed && !freeRoam) {
     setTimeout(() => {
@@ -252,11 +277,13 @@ function openPanel(id, state) {
   App.input.unlock();
   App.input.showTouch(false);
   App.audio.ui('tick');
+  backend.track('menus', 'opened', { panel: id, from_state: panelReturn });
 }
 function closePanels() {
   for (const id of ['pause', 'codex', 'help']) $(id).classList.add('hidden');
   if (panelReturn === ST.MENU) showMenu();
   else { App.state = ST.PLAY; App.input.lock(); App.input.showTouch(true); }
+  backend.track('menus', 'closed', { return_state: panelReturn });
 }
 
 function wireUI() {
@@ -270,6 +297,7 @@ function wireUI() {
   $('btnCodexFromPause').onclick = () => { $('pause').classList.add('hidden'); openPanel('codex', ST.CODEX); };
   $('btnAbort').onclick = () => {
     Save.write(App.game.save());
+    backend.endPlay('abort_to_menu', gameContext());
     for (const id of ['pause', 'codex', 'help']) $(id).classList.add('hidden');
     showMenu();
   };
@@ -277,10 +305,15 @@ function wireUI() {
     App.hud.hideCard();
     App.state = ST.PLAY; App.input.lock(); App.input.showTouch(true);
     App.audio.ui('ok');
+    backend.track('mission_briefing', 'acknowledged', { mission_index: App.game.missionIdx });
   };
   // one close path, so the ESC button and the Escape key cannot diverge
   document.querySelectorAll('[data-close]').forEach(b => b.onclick = closePanels);
-  addEventListener('beforeunload', () => { if (App.game && App.state >= ST.PLAY) Save.write(App.game.save()); });
+  $('accessRetry').onclick = () => location.reload();
+  addEventListener('beforeunload', () => {
+    if (App.game && App.state >= ST.PLAY) Save.write(App.game.save());
+    backend.endPlay('page_unload', gameContext());
+  });
 }
 
 /* ---------------- settings ---------------- */
@@ -288,10 +321,11 @@ function buildSettingsUI() {
   const body = $('settingsBody');
   const S = App.settings;
   const rows = [];
+  const settingKey = (label) => label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
   const seg = (label, note, opts, get, set) => rows.push(
-    { type: 'seg', label, note, opts, get, set });
+    { type: 'seg', key: settingKey(label), label, note, opts, get, set });
   const rng = (label, note, min, max, step, get, set) => rows.push(
-    { type: 'rng', label, note, min, max, step, get, set });
+    { type: 'rng', key: settingKey(label), label, note, min, max, step, get, set });
 
   seg('RENDER QUALITY', 'clipmap, shadows, excavation grid, boulders, particles',
     ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'],
@@ -350,7 +384,12 @@ function buildSettingsUI() {
       const s = document.createElement('div'); s.className = 'seg';
       r.opts.forEach((o, i) => {
         const b = document.createElement('button'); b.textContent = o;
-        b.onclick = () => { r.set(i); [...s.children].forEach((c, j) => c.classList.toggle('on', j === i)); App.audio.ui('tick'); };
+        b.onclick = () => {
+          r.set(i);
+          [...s.children].forEach((c, j) => c.classList.toggle('on', j === i));
+          backend.track('settings_menu', 'setting_changed', { setting_key: r.key, option_index: i });
+          App.audio.ui('tick');
+        };
         s.appendChild(b);
       });
       [...s.children].forEach((c, j) => c.classList.toggle('on', j === r.get()));
@@ -363,6 +402,9 @@ function buildSettingsUI() {
       v.style.cssText = 'margin-left:10px;font-size:10px;color:#6fe3f5;min-width:34px;display:inline-block';
       v.textContent = (+r.get()).toFixed(r.step < 1 ? 2 : 0);
       i.oninput = () => { r.set(+i.value); v.textContent = (+i.value).toFixed(r.step < 1 ? 2 : 0); };
+      i.onchange = () => backend.track('settings_menu', 'setting_changed', {
+        setting_key: r.key, value: +i.value
+      }, { dedupeKey: `setting:${r.key}:${i.value}`, dedupeMs: 500 });
       wrap.appendChild(i); wrap.appendChild(v);
       d.appendChild(wrap);
     }
@@ -370,6 +412,23 @@ function buildSettingsUI() {
   }
 }
 function persist() { Save.saveSettings(App.settings); }
+
+function inputMethod() {
+  if (App.input?.touch?.active) return 'touch';
+  if (App.input?.pad !== null && App.input?.pad !== undefined) return 'gamepad';
+  return 'keyboard_mouse';
+}
+
+function gameContext() {
+  if (!App.game) return {};
+  return {
+    mission_index: App.game.missionIdx,
+    mission_complete: !App.game.mission,
+    play_duration_seconds: Math.round(App.game.met || 0),
+    distance_meters: Math.round(App.rover?.odo || 0),
+    input_method: inputMethod()
+  };
+}
 
 /* Save the frame that was just drawn. Photo mode hides the HUD already, so what
    lands on disk is what you framed. */
@@ -517,7 +576,20 @@ function tick(dt) {
   input.endFrame();
 
   fpsT += dt; fpsN++;
-  if (fpsT > 1) { App.fps = fpsN / fpsT; fpsT = 0; fpsN = 0; }
+  if (fpsT > 1) {
+    App.fps = fpsN / fpsT; fpsT = 0; fpsN = 0;
+    if (playing && (!App._perfEventT || App.elapsed - App._perfEventT >= 60)) {
+      App._perfEventT = App.elapsed;
+      backend.track('performance', 'sampled', {
+        fps: Math.round(App.fps),
+        quality: App.settings.quality,
+        viewport_width: innerWidth,
+        viewport_height: innerHeight,
+        mission_index: App.game.missionIdx,
+        input_method: inputMethod()
+      }, { dedupeKey: `performance:${Math.floor(App.elapsed / 60)}`, dedupeMs: 30_000 });
+    }
+  }
   void acc;
 }
 
@@ -776,13 +848,25 @@ addEventListener('error', (e) => {
     t.textContent = 'LINK FAILURE — ' + (e.message || 'unknown');
     t.style.color = '#ff5f56';
   }
+  backend.track('errors', 'runtime_error', {
+    phase: App.state === ST.BOOT ? 'boot' : 'runtime',
+    error_type: e.error?.name || 'javascript_error'
+  }, { dedupeKey: `error:${e.error?.name || 'javascript_error'}`, dedupeMs: 5000 });
   console.error(e.error || e.message);
 });
 
 boot().catch((err) => {
   console.error(err);
+  if (err instanceof BackendAccessError) {
+    $('accessDeniedMessage').textContent = err.playerMessage;
+    $('accessRetry').onclick = () => location.reload();
+    $('accessDenied').classList.remove('hidden');
+    return;
+  }
+  backend.track('errors', 'boot_failed', { error_type: err?.name || 'boot_error' },
+    { dedupeKey: 'boot-failed', dedupeMs: 60_000 });
   const t = $('loadtext');
-  if (t) { t.textContent = 'LINK FAILURE — ' + err.message; t.style.color = '#ff5f56'; }
+  if (t) { t.textContent = 'THE GAME COULD NOT START. RELOAD TO TRY AGAIN.'; t.style.color = '#ff5f56'; }
 });
 
 void PLAYABLE_R; void QUALITY; void Props;

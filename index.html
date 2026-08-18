@@ -11,6 +11,7 @@
      returning player keeps the old layout for ten minutes after a deploy.
      Bump this whenever styles.css changes in a way players must see. -->
 <link rel="stylesheet" href="src/ui/styles.css?v=4" />
+<script src="runtime-config.js"></script>
 <script type="importmap">
 {
   "imports": {
@@ -61,6 +62,7 @@
         <button class="btn ghost" id="btnSettings">SYSTEMS</button>
       </div>
       <p class="hint">WebGL2 · GPU accelerated · headphones recommended</p>
+      <p class="backend-status hidden" id="backendStatus" role="status"></p>
     </div>
     <div class="menu-right">
       <div class="dossier">
@@ -72,6 +74,18 @@
         <div class="dossier-row"><span>LAST CONTACT</span><b>D+214</b></div>
         <div class="dossier-row alert"><span>STATUS</span><b>SILENT</b></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ONLINE SERVICES ============ -->
+<div id="accessDenied" class="overlay choice hidden" role="alertdialog" aria-modal="true" aria-labelledby="accessDeniedTitle">
+  <div class="choice-card">
+    <div class="card-kicker alert-text">CONNECTION REQUIRED</div>
+    <h2 id="accessDeniedTitle">ACCESS COULD NOT BE VERIFIED</h2>
+    <p id="accessDeniedMessage">Your local save is safe. Check your connection and try again.</p>
+    <div class="choice-actions">
+      <button class="btn primary" id="accessRetry">TRY AGAIN</button>
     </div>
   </div>
 </div>

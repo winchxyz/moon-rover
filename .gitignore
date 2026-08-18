@@ -3,6 +3,12 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.log
+.env
+.env.*
+!.env.example
+backend/runtime-secrets.json
+dist/
+coverage/
 
 .claude/
 
